@@ -5,13 +5,13 @@ import {
   StyleSheet,
   Pressable,
   StatusBar,
-  SafeAreaView,
   Dimensions,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import  { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const { width } = Dimensions.get("window");
 

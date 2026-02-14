@@ -1,6 +1,6 @@
 import React from "react";
 import { Tabs } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
 const COLORS = {
   bg: "#0E0F12",
@@ -51,26 +51,8 @@ export default function TabsLayout() {
         name="matches"
         options={{
           title: "Matches",
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? "calendar" : "calendar-outline"}
-              size={size}
-              color={color}
-            />
-          ),
-        }}
-      />
-
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: "Profile",
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? "person" : "person-outline"}
-              size={size}
-              color={color}
-            />
+          tabBarIcon: ({ color, size }) => (
+            <MaterialCommunityIcons name="cricket" size={size} color={color} />
           ),
         }}
       />
