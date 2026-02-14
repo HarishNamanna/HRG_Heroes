@@ -10,16 +10,19 @@ import {
   Modal,
   Animated,
   Dimensions,
+  RefreshControl,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { getMatches, getMatchSummary } from "../services/matchService";
+
 const COLORS = {
-  bg: "#0E0F12", // charcoal black
+  bg: "#0E0F12",
   card: "#14161B",
-  orange: "#FF6A2B", // sunset orange
+  orange: "#FF6A2B",
   orangeSoft: "#FF8A55",
   text: "#F4F5F7",
   muted: "#A6AAB4",
@@ -36,8 +39,7 @@ type MatchCard = {
   teamA: { _id: string; name: string; score?: string; overs?: string };
   teamB: { _id: string; name: string; score?: string; overs?: string };
 
-  // optional match context
-  tossWonBy?: "teamA" | "teamB";
+  tossWonBy?: string;
   electedTo?: "bat" | "bowl";
 
   innings?: 1 | 2;
@@ -56,101 +58,16 @@ export default function HomeScreen() {
   const [tab, setTab] = useState<PerformerTab>("bat");
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const { width } = Dimensions.get("window");
-  const slideAnim = useRef(new Animated.Value(width)).current;
+  const [matches, setMatches] = useState<MatchCard[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const router = useRouter();
 
-  // ✅ helper
-  const getTeamName = (item: MatchCard, who: "teamA" | "teamB") => {
-    return who === "teamA" ? item.teamA.name : item.teamB.name;
-  };
+  const { width } = Dimensions.get("window");
+  const slideAnim = useRef(new Animated.Value(width)).current;
 
-  // ✅ Mock matches (UI-ready)
-  const matches: MatchCard[] = useMemo(
-    () => [
-      {
-        _id: "m1",
-        name: "Final",
-        format: "T20",
-        status: "inprogress",
-        oversPerInnings: 20,
-
-        teamA: {
-          _id: "a1",
-          name: "Dream Strikers",
-          score: "176/7",
-          overs: "20.0",
-        },
-        teamB: {
-          _id: "b1",
-          name: "Thunder Kings",
-          score: "135/4",
-          overs: "16.2",
-        },
-
-        tossWonBy: "teamA",
-        electedTo: "bat",
-        innings: 2,
-
-        crr: "8.32",
-        rrr: "10.10",
-        runsNeeded: 42,
-        ballsLeft: 22,
-      },
-
-      {
-        _id: "m2",
-        name: "Semi Final",
-        format: "T20",
-        status: "completed",
-        oversPerInnings: 20,
-
-        teamA: { _id: "a2", name: "HRG Heroes", score: "162/6", overs: "20.0" },
-        teamB: { _id: "b2", name: "Warriors XI", score: "148/9", overs: "20.0" },
-
-        tossWonBy: "teamB",
-        electedTo: "bowl",
-        innings: 2,
-
-        result: "HRG Heroes won by 14 runs",
-      },
-
-      {
-        _id: "m3",
-        name: "League Match",
-        format: "ODI",
-        status: "scheduled",
-        oversPerInnings: 50,
-
-        teamA: { _id: "a3", name: "Royal Blasters" },
-        teamB: { _id: "b3", name: "Night Riders" },
-
-        tossWonBy: "teamA",
-        electedTo: "bat",
-        innings: 1,
-      },
-
-      {
-        _id: "m4",
-        name: "Practice",
-        format: "T10",
-        status: "inprogress",
-        oversPerInnings: 10,
-
-        teamA: { _id: "a4", name: "Street Stars", score: "72/3", overs: "8.1" },
-        teamB: { _id: "b4", name: "Gully Champs" },
-
-        tossWonBy: "teamB",
-        electedTo: "bowl",
-        innings: 1,
-
-        crr: "8.82",
-      },
-    ],
-    []
-  );
-
+  // Sidebar animation
   useEffect(() => {
     if (menuOpen) {
       slideAnim.setValue(width);
@@ -168,35 +85,18 @@ export default function HomeScreen() {
     }
   }, [menuOpen]);
 
-  // performers
-  const batPerformers = useMemo(
-    () => [
-      { name: "Harish N", team: "HRG Heroes", value: "184 runs", sub: "SR 162.4 • 3 inns" },
-      { name: "Karthik", team: "Thunder Kings", value: "142 runs", sub: "SR 148.2 • 2 inns" },
-      { name: "Rohan", team: "Dream Strikers", value: "118 runs", sub: "Avg 59.0 • 2 inns" },
-    ],
-    []
-  );
+  // Helpers
+const getTeamNameFromId = (item: MatchCard, teamId?: string) => {
+  if (!teamId) return "--";
+  console.log("T",teamId);
 
-  const bowlPerformers = useMemo(
-    () => [
-      { name: "Praveen", team: "Warriors XI", value: "9 wkts", sub: "Econ 5.8 • 3 matches" },
-      { name: "Sagar", team: "HRG Heroes", value: "7 wkts", sub: "Best 4/18 • 2 matches" },
-      { name: "Naveen", team: "Night Riders", value: "6 wkts", sub: "Econ 6.2 • 2 matches" },
-    ],
-    []
-  );
+  if (teamId === item.teamA._id) return item.teamA.name;
+  if (teamId === item.teamB._id) return item.teamB.name;
 
-  const fieldPerformers = useMemo(
-    () => [
-      { name: "Akash", team: "Dream Strikers", value: "6 dismissals", sub: "4 catches • 2 run-outs" },
-      { name: "Harish N", team: "HRG Heroes", value: "5 dismissals", sub: "3 catches • 2 stumpings" },
-      { name: "Ravi", team: "Thunder Kings", value: "4 dismissals", sub: "4 catches" },
-    ],
-    []
-  );
+  return "--";
+};
 
-  const performers = tab === "bat" ? batPerformers : tab === "bowl" ? bowlPerformers : fieldPerformers;
+
 
   const getStatusLabel = (status: string) => {
     if (status === "inprogress") return "LIVE";
@@ -211,11 +111,189 @@ export default function HomeScreen() {
     return styles.statusUpcoming;
   };
 
+  // ✅ REAL API FETCH
+  const loadMatches = async () => {
+    try {
+      setLoading(true);
+
+      const matchList = await getMatches();
+      console.log("Fetched matches:", matchList);
+
+      const safeList = Array.isArray(matchList) ? matchList : [];
+
+      const enriched: MatchCard[] = await Promise.all(
+        safeList.map(async (m: any) => {
+          // base match
+          const base: MatchCard = {
+            _id: m._id,
+            name: m.name,
+            status: m.status,
+            oversPerInnings: m.oversPerInnings,
+            format: m.format,
+
+            teamA: {
+              _id: m.teamA?._id || m.teamA,
+              name: m.teamA?.name || "Team A",
+            },
+
+            teamB: {
+              _id: m.teamB?._id || m.teamB,
+              name: m.teamB?.name || "Team B",
+            },
+          };
+
+          // try summary
+          try {
+            const summary = await getMatchSummary(m._id);
+console.log("Summary for match", m._id, summary);
+            // scores
+            base.teamA.score = summary?.teamA?.score;
+            base.teamA.overs = summary?.teamA?.overs;
+
+            base.teamB.score = summary?.teamB?.score;
+            base.teamB.overs = summary?.teamB?.overs;
+
+            // match meta
+            base.electedTo = summary?.electedTo;
+            base.innings = summary?.innings;
+            base.crr = summary?.crr;
+            base.rrr = summary?.rrr;
+            base.runsNeeded = summary?.runsNeeded;
+            base.ballsLeft = summary?.ballsLeft;
+            base.result = summary?.result;
+
+            // tossWonBy is a teamId from backend
+            if (summary?.tossWonBy) {
+              base.tossWonBy =
+                summary.tossWonBy === base.teamA._id ? "teamA" : "teamB";
+            }
+          } catch (err) {
+            // if summary fails, ignore (scheduled match)
+          }
+
+          return base;
+        })
+      );
+
+      // Optional sorting: show LIVE first
+      enriched.sort((a, b) => {
+        const order = { inprogress: 0, scheduled: 1, completed: 2 };
+        return order[a.status] - order[b.status];
+      });
+
+      setMatches(enriched);
+    } catch (err: any) {
+      console.log("Load matches error:", err?.response?.data || err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadMatches();
+  }, []);
+
+  const onRefresh = async () => {
+    try {
+      setRefreshing(true);
+      await loadMatches();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // performers (dummy for now)
+  const batPerformers = useMemo(
+    () => [
+      {
+        name: "Harish N",
+        team: "HRG Heroes",
+        value: "184 runs",
+        sub: "SR 162.4 • 3 inns",
+      },
+      {
+        name: "Karthik",
+        team: "Thunder Kings",
+        value: "142 runs",
+        sub: "SR 148.2 • 2 inns",
+      },
+      {
+        name: "Rohan",
+        team: "Dream Strikers",
+        value: "118 runs",
+        sub: "Avg 59.0 • 2 inns",
+      },
+    ],
+    []
+  );
+
+  const bowlPerformers = useMemo(
+    () => [
+      {
+        name: "Praveen",
+        team: "Warriors XI",
+        value: "9 wkts",
+        sub: "Econ 5.8 • 3 matches",
+      },
+      {
+        name: "Sagar",
+        team: "HRG Heroes",
+        value: "7 wkts",
+        sub: "Best 4/18 • 2 matches",
+      },
+      {
+        name: "Naveen",
+        team: "Night Riders",
+        value: "6 wkts",
+        sub: "Econ 6.2 • 2 matches",
+      },
+    ],
+    []
+  );
+
+  const fieldPerformers = useMemo(
+    () => [
+      {
+        name: "Akash",
+        team: "Dream Strikers",
+        value: "6 dismissals",
+        sub: "4 catches • 2 run-outs",
+      },
+      {
+        name: "Harish N",
+        team: "HRG Heroes",
+        value: "5 dismissals",
+        sub: "3 catches • 2 stumpings",
+      },
+      {
+        name: "Ravi",
+        team: "Thunder Kings",
+        value: "4 dismissals",
+        sub: "4 catches",
+      },
+    ],
+    []
+  );
+
+  const performers =
+    tab === "bat" ? batPerformers : tab === "bowl" ? bowlPerformers : fieldPerformers;
+
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" />
 
-      <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 26 }} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={{ paddingBottom: 26 }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={COLORS.orangeSoft}
+          />
+        }
+      >
         {/* Header */}
         <View style={styles.header}>
           <View>
@@ -228,130 +306,185 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
-        {/* Horizontal match scorecards */}
+        {/* Matches */}
         <View style={styles.sectionRow}>
-          <Text style={styles.sectionTitle}>Your matches</Text>
-          <Pressable>
-            <Text style={styles.seeAll}>See all</Text>
+          <Text style={styles.sectionTitle}>Matches</Text>
+
+          <Pressable onPress={loadMatches}>
+            <Text style={styles.seeAll}>Refresh</Text>
           </Pressable>
         </View>
 
-        <FlatList
-          horizontal
-          data={matches}
-          keyExtractor={(item) => item._id}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingRight: 18 }}
-          style={{ marginLeft: -18, paddingLeft: 18 }}
-          renderItem={({ item }) => (
-            <Pressable style={styles.matchCardH}>
-              <LinearGradient
-                colors={["rgba(255,106,43,0.20)", "rgba(255,106,43,0.05)"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.matchCardHInner}
-              >
-                {/* Top row */}
-                <View style={styles.matchTopRow}>
-                  <View style={[styles.statusPill, statusStyle(item.status)]}>
-                    <Text style={styles.statusText}>{getStatusLabel(item.status)}</Text>
-                  </View>
-
-                  <View style={styles.formatPill}>
-                    <Text style={styles.formatText}>{item.format ?? "MATCH"}</Text>
-                  </View>
-                </View>
-
-                <Text style={styles.matchName}>{item.name}</Text>
-
-                <Text style={styles.matchTeams} numberOfLines={1}>
-                  {item.teamA.name} <Text style={{ color: "rgba(166,170,180,0.85)" }}>vs</Text> {item.teamB.name}
-                </Text>
-
-                {/* Scorecard */}
-                <View style={styles.scoreCardBox}>
-                  {/* Toss */}
-                  {item.tossWonBy && item.electedTo ? (
-                    <Text style={styles.tossLine} numberOfLines={1}>
-                      Toss: <Text style={styles.tossStrong}>{getTeamName(item, item.tossWonBy)}</Text> chose to{" "}
-                      <Text style={styles.tossOrange}>{item.electedTo}</Text>
-                    </Text>
-                  ) : (
-                    <Text style={styles.tossLine}>Toss: --</Text>
-                  )}
-
-                  {/* Teams */}
-                  <View style={{ marginTop: 10, gap: 10 }}>
-                    {/* Team A */}
-                    <View style={styles.teamRow}>
-                      <Text style={styles.teamNameLine} numberOfLines={1}>
-                        {item.teamA.name}
+        {loading ? (
+          <Text style={{ color: COLORS.muted, marginBottom: 12 }}>
+            Loading matches...
+          </Text>
+        ) : matches.length === 0 ? (
+          <Text style={{ color: COLORS.muted, marginBottom: 12 }}>
+            No matches found
+          </Text>
+        ) : (
+          <FlatList
+            horizontal
+            data={matches}
+            keyExtractor={(item) => item._id}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingRight: 18 }}
+            style={{ marginLeft: -18, paddingLeft: 18 }}
+            renderItem={({ item }) => (
+              <Pressable style={styles.matchCardH}>
+                <LinearGradient
+                  colors={["rgba(255,106,43,0.20)", "rgba(255,106,43,0.05)"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.matchCardHInner}
+                >
+                  {/* Top row */}
+                  <View style={styles.matchTopRow}>
+                    <View style={[styles.statusPill, statusStyle(item.status)]}>
+                      <Text style={styles.statusText}>
+                        {getStatusLabel(item.status)}
                       </Text>
-
-                      <View style={styles.scoreRight}>
-                        <Text style={styles.teamScoreBig}>{item.teamA.score ?? "--/--"}</Text>
-                        <Text style={styles.teamOvers}>({item.teamA.overs ?? "--"})</Text>
-                      </View>
                     </View>
 
-                    {/* Team B */}
-                    <View style={styles.teamRow}>
-                      <Text style={styles.teamNameLine} numberOfLines={1}>
-                        {item.teamB.name}
+                    <View style={styles.formatPill}>
+                      <Text style={styles.formatText}>
+                        {item.format ?? "MATCH"}
                       </Text>
+                    </View>
+                  </View>
 
-                      {item.innings === 1 ? (
-                        <Text style={styles.yetToBat}>Yet to bat</Text>
-                      ) : (
+                  <Text style={styles.matchName}>{item.name}</Text>
+
+                  <Text style={styles.matchTeams} numberOfLines={1}>
+                    {item.teamA.name}{" "}
+                    <Text style={{ color: "rgba(166,170,180,0.85)" }}>vs</Text>{" "}
+                    {item.teamB.name}
+                  </Text>
+
+                  {/* Scorecard */}
+                  <View style={styles.scoreCardBox}>
+                    {/* Toss */}
+                    {item.tossWonBy && item.electedTo ? (
+  <Text style={styles.tossLine} numberOfLines={1}>
+    Toss:{" "}
+    <Text style={styles.tossStrong}>
+      {getTeamNameFromId(item, item.tossWonBy)}
+    </Text>{" "}
+    chose to{" "}
+    <Text style={styles.tossOrange}>{item.electedTo}</Text>
+  </Text>
+) : (
+  <Text style={styles.tossLine}>Toss: hey</Text>
+)}
+
+
+                    {/* Teams */}
+                    <View style={{ marginTop: 10, gap: 10 }}>
+                      {/* Team A */}
+                      <View style={styles.teamRow}>
+                        <Text style={styles.teamNameLine} numberOfLines={1}>
+                          {item.teamA.name}
+                        </Text>
+
                         <View style={styles.scoreRight}>
-                          <Text style={styles.teamScoreBig}>{item.teamB.score ?? "--/--"}</Text>
-                          <Text style={styles.teamOvers}>({item.teamB.overs ?? "--"})</Text>
+                          <Text style={styles.teamScoreBig}>
+                            {item.teamA.score ?? "0/0"}
+                          </Text>
+                          <Text style={styles.teamOvers}>
+                            ({item.teamA.overs ?? "0"})
+                          </Text>
                         </View>
-                      )}
+                      </View>
+
+                      {/* Team B */}
+                      <View style={styles.teamRow}>
+                        <Text style={styles.teamNameLine} numberOfLines={1}>
+                          {item.teamB.name}
+                        </Text>
+
+                        {item.innings === 1 ? (
+                          <Text style={styles.yetToBat}>Yet to bat</Text>
+                        ) : (
+                          <View style={styles.scoreRight}>
+                            <Text style={styles.teamScoreBig}>
+                              {item.teamB.score ?? "0/0"}
+                            </Text>
+                            <Text style={styles.teamOvers}>
+                              ({item.teamB.overs ?? "0"})
+                            </Text>
+                          </View>
+                        )}
+                      </View>
                     </View>
-                  </View>
 
-                  <View style={styles.scoreDivider} />
+                    <View style={styles.scoreDivider} />
 
-                  {/* Situation */}
-                  {item.status === "inprogress" ? (
-                    item.innings === 1 ? (
-                      <View style={styles.metaBottomRow}>
-                        <Text style={styles.metaChip}>
-                          CRR <Text style={styles.metaStrong}>{item.crr ?? "--"}</Text>
-                        </Text>
-                        <View style={styles.dotSepSmall} />
-                        <Text style={styles.metaChip}>1st Innings • {item.oversPerInnings} overs</Text>
-                      </View>
+                    {/* Situation */}
+                    {item.status === "inprogress" ? (
+                      item.innings === 1 ? (
+                        <View style={styles.metaBottomRow}>
+                          <Text style={styles.metaChip}>
+                            CRR{" "}
+                            <Text style={styles.metaStrong}>
+                              {item.crr ?? "--"}
+                            </Text>
+                          </Text>
+                          <View style={styles.dotSepSmall} />
+                          <Text style={styles.metaChip}>
+                            1st Innings • {item.oversPerInnings} overs
+                          </Text>
+                        </View>
+                      ) : (
+                        <View style={styles.metaBottomRow}>
+                          <Text style={styles.metaChip}>
+                            Need{" "}
+                            <Text style={styles.metaStrong}>
+                              {item.runsNeeded ?? "--"}
+                            </Text>{" "}
+                            in{" "}
+                            <Text style={styles.metaStrong}>
+                              {item.ballsLeft ?? "--"}
+                            </Text>{" "}
+                            balls
+                          </Text>
+
+                          <View style={styles.dotSepSmall} />
+
+                          <Text style={styles.metaChip}>
+                            RRR{" "}
+                            <Text style={styles.metaStrong}>
+                              {item.rrr ?? "--"}
+                            </Text>{" "}
+                            • CRR{" "}
+                            <Text style={styles.metaStrong}>
+                              {item.crr ?? "--"}
+                            </Text>
+                          </Text>
+                        </View>
+                      )
                     ) : (
-                      <View style={styles.metaBottomRow}>
-                        <Text style={styles.metaChip}>
-                          Need <Text style={styles.metaStrong}>{item.runsNeeded ?? "--"}</Text> in{" "}
-                          <Text style={styles.metaStrong}>{item.ballsLeft ?? "--"}</Text> balls
-                        </Text>
+                      <Text style={styles.completedLine}>
+                        {item.status === "scheduled"
+                          ? "Match not started"
+                          : item.result ?? "Match completed"}
+                      </Text>
+                    )}
 
-                        <View style={styles.dotSepSmall} />
-
-                        <Text style={styles.metaChip}>
-                          RRR <Text style={styles.metaStrong}>{item.rrr ?? "--"}</Text> • CRR{" "}
-                          <Text style={styles.metaStrong}>{item.crr ?? "--"}</Text>
-                        </Text>
-                      </View>
-                    )
-                  ) : (
-                    <Text style={styles.completedLine}>
-                      {item.status === "scheduled" ? "Match not started" : item.result ?? "Match completed"}
-                    </Text>
-                  )}
-
-                  <Pressable style={styles.viewScorePill}>
-                    <Text style={styles.viewScoreText}>View scorecard →</Text>
-                  </Pressable>
-                </View>
-              </LinearGradient>
-            </Pressable>
-          )}
-        />
+                    {/* <Pressable
+                      style={styles.viewScorePill}
+                      onPress={() => router.push(`/matches/${item._id}`)}
+                    >
+                      <Text style={styles.viewScoreText}>
+                        View scorecard →
+                      </Text>
+                    </Pressable> */}
+                  </View>
+                </LinearGradient>
+              </Pressable>
+            )}
+          />
+        )}
 
         {/* Host CTA */}
         <LinearGradient
@@ -362,10 +495,15 @@ export default function HomeScreen() {
         >
           <View style={styles.hostLeft}>
             <Text style={styles.hostTitle}>Want to host a match?</Text>
-            <Text style={styles.hostSub}>Start for free. Score live. Share instantly.</Text>
+            <Text style={styles.hostSub}>
+              Start for free. Score live. Share instantly.
+            </Text>
           </View>
 
-          <Pressable style={styles.hostBtn}>
+          <Pressable
+            style={styles.hostBtn}
+            onPress={() => router.push("/create-match/matches")}
+          >
             <Text style={styles.hostBtnText}>Start</Text>
           </Pressable>
         </LinearGradient>
@@ -388,7 +526,9 @@ export default function HomeScreen() {
             <View style={styles.myPerfTop}>
               <View>
                 <Text style={styles.myPerfName}>Harish Namanna</Text>
-                <Text style={styles.myPerfSub}>Weekly summary • Last 7 days</Text>
+                <Text style={styles.myPerfSub}>
+                  Weekly summary • Last 7 days
+                </Text>
               </View>
 
               <View style={styles.badgePill}>
@@ -414,7 +554,9 @@ export default function HomeScreen() {
             </View>
 
             <View style={styles.myPerfFooter}>
-              <Text style={styles.myPerfHint}>Keep scoring to climb the weekly leaderboard.</Text>
+              <Text style={styles.myPerfHint}>
+                Keep scoring to climb the weekly leaderboard.
+              </Text>
 
               <Pressable style={styles.myPerfBtn}>
                 <Text style={styles.myPerfBtnText}>View stats</Text>
@@ -428,22 +570,49 @@ export default function HomeScreen() {
           <Text style={styles.sectionTitle}>Top performers of the week</Text>
 
           <View style={styles.tabRow}>
-            <Pressable onPress={() => setTab("bat")} style={[styles.tabChip, tab === "bat" && styles.tabChipActive]}>
-              <Text style={[styles.tabText, tab === "bat" && styles.tabTextActive]}>Bat</Text>
+            <Pressable
+              onPress={() => setTab("bat")}
+              style={[styles.tabChip, tab === "bat" && styles.tabChipActive]}
+            >
+              <Text
+                style={[styles.tabText, tab === "bat" && styles.tabTextActive]}
+              >
+                Bat
+              </Text>
             </Pressable>
 
-            <Pressable onPress={() => setTab("bowl")} style={[styles.tabChip, tab === "bowl" && styles.tabChipActive]}>
-              <Text style={[styles.tabText, tab === "bowl" && styles.tabTextActive]}>Bowl</Text>
+            <Pressable
+              onPress={() => setTab("bowl")}
+              style={[styles.tabChip, tab === "bowl" && styles.tabChipActive]}
+            >
+              <Text
+                style={[styles.tabText, tab === "bowl" && styles.tabTextActive]}
+              >
+                Bowl
+              </Text>
             </Pressable>
 
-            <Pressable onPress={() => setTab("field")} style={[styles.tabChip, tab === "field" && styles.tabChipActive]}>
-              <Text style={[styles.tabText, tab === "field" && styles.tabTextActive]}>Field</Text>
+            <Pressable
+              onPress={() => setTab("field")}
+              style={[styles.tabChip, tab === "field" && styles.tabChipActive]}
+            >
+              <Text
+                style={[styles.tabText, tab === "field" && styles.tabTextActive]}
+              >
+                Field
+              </Text>
             </Pressable>
           </View>
 
           <View style={styles.performerList}>
             {performers.map((p, idx) => (
-              <View key={p.name} style={[styles.performerRow, idx !== performers.length - 1 && styles.performerRowBorder]}>
+              <View
+                key={p.name}
+                style={[
+                  styles.performerRow,
+                  idx !== performers.length - 1 && styles.performerRowBorder,
+                ]}
+              >
                 <View style={styles.rankCircle}>
                   <Text style={styles.rankText}>{idx + 1}</Text>
                 </View>
@@ -467,7 +636,9 @@ export default function HomeScreen() {
       <Modal visible={menuOpen} transparent animationType="none">
         <Pressable style={styles.backdrop} onPress={() => setMenuOpen(false)} />
 
-        <Animated.View style={[styles.sidebar, { transform: [{ translateX: slideAnim }] }]}>
+        <Animated.View
+          style={[styles.sidebar, { transform: [{ translateX: slideAnim }] }]}
+        >
           <View style={styles.sidebarTop}>
             <View style={styles.sidebarAvatar}>
               <Text style={styles.sidebarAvatarText}>H</Text>
@@ -497,7 +668,11 @@ export default function HomeScreen() {
             </Pressable>
 
             <Pressable style={styles.sidebarItem}>
-              <Ionicons name="help-circle-outline" size={18} color={COLORS.text} />
+              <Ionicons
+                name="help-circle-outline"
+                size={18}
+                color={COLORS.text}
+              />
               <Text style={styles.sidebarItemText}>Help</Text>
             </Pressable>
           </View>
@@ -518,6 +693,7 @@ export default function HomeScreen() {
   );
 }
 
+/* ========= STYLES ========= */
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
   container: { flex: 1, paddingHorizontal: 18, paddingTop: 12 },
@@ -657,8 +833,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
 
-  // ===== Scorecard box =====
-
   scoreCardBox: {
     marginTop: 14,
     borderRadius: 18,
@@ -785,7 +959,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
 
-  // ===== Host CTA =====
   hostCard: {
     marginTop: 18,
     borderRadius: 26,
@@ -827,7 +1000,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 
-  // ===== My performance =====
   myPerfCard: {
     borderRadius: 26,
     padding: 16,
@@ -934,7 +1106,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
 
-  // ===== Performers =====
   tabRow: {
     flexDirection: "row",
     gap: 10,
@@ -1030,7 +1201,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
 
-  // ===== Sidebar =====
   backdrop: {
     position: "absolute",
     top: 0,

@@ -11,6 +11,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { api } from "../services/api";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const COLORS = {
   bg: "#0E0F12",
@@ -42,7 +43,8 @@ export default function LoginScreen() {
 
     // You will probably receive token + user
     console.log("Login success:", res.data);
-
+await AsyncStorage.setItem("token", res.data.token);
+console.log(res.data)
     alert("Login successful ✅");
     router.replace("/(tabs)");
   } catch (err: any) {
