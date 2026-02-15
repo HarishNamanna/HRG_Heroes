@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -18,6 +18,7 @@ import {
   createMatch,
   doToss,
   startMatch,
+  getPlayers,
 } from "../services/matchService";
 
 
@@ -45,10 +46,13 @@ export default function CreateMatchWizard() {
 
 
   // Step 2: Players
-  const [teamAPlayers, setTeamAPlayers] = useState<string[]>([]);
-  const [teamBPlayers, setTeamBPlayers] = useState<string[]>([]);
+  const [teamAPlayers, setTeamAPlayers] = useState<Array<{ _id?: string; name: string }>>([]);
+  const [teamBPlayers, setTeamBPlayers] = useState<Array<{ _id?: string; name: string }>>([]);
   const [playerAInput, setPlayerAInput] = useState("");
   const [playerBInput, setPlayerBInput] = useState("");
+  const [allPlayers, setAllPlayers] = useState<Array<{ _id: string; name: string }>>([]);
+  const [showExistingA, setShowExistingA] = useState(false);
+  const [showExistingB, setShowExistingB] = useState(false);
 
   // Step 3: Match details
   const [format, setFormat] = useState<"T20" | "ODI" | "T10">("T20");
@@ -68,6 +72,22 @@ export default function CreateMatchWizard() {
     ],
     []
   );
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const players = await getPlayers();
+        if (!mounted) return;
+        setAllPlayers(players || []);
+      } catch (err) {
+        // ignore - existing API may be inaccessible during dev
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const canGoNext = () => {
     if (step === 1) return teamAName.trim() && teamBName.trim();
@@ -108,23 +128,42 @@ const back = () => {
   const addPlayerA = () => {
     const name = playerAInput.trim();
     if (!name) return;
-    setTeamAPlayers((p) => [...p, name]);
+    // prevent duplicates by name or id
+    if (teamAPlayers.find((x) => x.name === name) || teamBPlayers.find((x) => x.name === name)) {
+      Alert.alert("Duplicate", "Player already added to a team");
+      return;
+    }
+    setTeamAPlayers((p) => [...p, { name }]);
     setPlayerAInput("");
   };
 
   const addPlayerB = () => {
     const name = playerBInput.trim();
     if (!name) return;
-    setTeamBPlayers((p) => [...p, name]);
+    if (teamBPlayers.find((x) => x.name === name) || teamAPlayers.find((x) => x.name === name)) {
+      Alert.alert("Duplicate", "Player already added to a team");
+      return;
+    }
+    setTeamBPlayers((p) => [...p, { name }]);
     setPlayerBInput("");
   };
 
-  const removePlayerA = (name: string) => {
-    setTeamAPlayers((p) => p.filter((x) => x !== name));
+  const removePlayerA = (identifier: string) => {
+    setTeamAPlayers((p) => p.filter((x) => (x._id ? x._id !== identifier : x.name !== identifier)));
   };
 
-  const removePlayerB = (name: string) => {
-    setTeamBPlayers((p) => p.filter((x) => x !== name));
+  const removePlayerB = (identifier: string) => {
+    setTeamBPlayers((p) => p.filter((x) => (x._id ? x._id !== identifier : x.name !== identifier)));
+  };
+
+  const addExistingToTeam = (player: { _id: string; name: string }, team: "A" | "B") => {
+    // prevent duplicates across both teams
+    if (teamAPlayers.find((x) => x._id === player._id) || teamBPlayers.find((x) => x._id === player._id)) {
+      Alert.alert("Already added", "This player is already added to a team.");
+      return;
+    }
+    if (team === "A") setTeamAPlayers((p) => [...p, { _id: player._id, name: player.name }]);
+    else setTeamBPlayers((p) => [...p, { _id: player._id, name: player.name }]);
   };
 
   // ✅ Step 5: Later you will call backend here
@@ -149,18 +188,26 @@ const finish = async () => {
       return;
     }
 
-    // 1) Create players for Team A
+    // 1) Resolve player IDs for Team A (create if new)
     const teamAPlayerIds: string[] = [];
     for (const p of teamAPlayers) {
-      const created = await createPlayer(p);
-      teamAPlayerIds.push(created._id);
+      if ((p as any)._id) {
+        teamAPlayerIds.push((p as any)._id as string);
+      } else {
+        const created = await createPlayer(p.name);
+        teamAPlayerIds.push(created._id);
+      }
     }
 
-    // 2) Create players for Team B
+    // 2) Resolve player IDs for Team B (create if new)
     const teamBPlayerIds: string[] = [];
     for (const p of teamBPlayers) {
-      const created = await createPlayer(p);
-      teamBPlayerIds.push(created._id);
+      if ((p as any)._id) {
+        teamBPlayerIds.push((p as any)._id as string);
+      } else {
+        const created = await createPlayer(p.name);
+        teamBPlayerIds.push(created._id);
+      }
     }
 
     // 3) Create Team A + Team B
@@ -322,16 +369,19 @@ const finish = async () => {
                   <Pressable onPress={addPlayerA} style={styles.addBtn}>
                     <Ionicons name="add" size={18} color="#111" />
                   </Pressable>
+                  <Pressable onPress={() => setShowExistingA((s) => !s)} style={[styles.addBtn, { marginLeft: 8 }]}> 
+                    <Ionicons name="people" size={18} color="#111" />
+                  </Pressable>
                 </View>
 
                 <View style={styles.chipsWrap}>
                   {teamAPlayers.map((p) => (
                     <Pressable
-                      key={p}
-                      onPress={() => removePlayerA(p)}
+                      key={p._id ?? p.name}
+                      onPress={() => removePlayerA(p._id ?? p.name)}
                       style={styles.playerChip}
                     >
-                      <Text style={styles.playerChipText}>{p}</Text>
+                      <Text style={styles.playerChipText}>{p.name}</Text>
                       <Ionicons
                         name="close"
                         size={14}
@@ -340,6 +390,22 @@ const finish = async () => {
                     </Pressable>
                   ))}
                 </View>
+
+                {showExistingA && (
+                  <View style={{ marginTop: 10 }}>
+                    {allPlayers
+                      .filter((pl) => !teamAPlayers.find((x) => x._id === pl._id) && !teamBPlayers.find((x) => x._id === pl._id))
+                      .map((pl) => (
+                        <Pressable
+                          key={pl._id}
+                          onPress={() => addExistingToTeam(pl, "A")}
+                          style={[styles.playerChip, { marginBottom: 8 }]}
+                        >
+                          <Text style={styles.playerChipText}>{pl.name}</Text>
+                        </Pressable>
+                      ))}
+                  </View>
+                )}
               </View>
 
               {/* Team B */}
@@ -357,16 +423,19 @@ const finish = async () => {
                   <Pressable onPress={addPlayerB} style={styles.addBtn}>
                     <Ionicons name="add" size={18} color="#111" />
                   </Pressable>
+                  <Pressable onPress={() => setShowExistingB((s) => !s)} style={[styles.addBtn, { marginLeft: 8 }]}> 
+                    <Ionicons name="people" size={18} color="#111" />
+                  </Pressable>
                 </View>
 
                 <View style={styles.chipsWrap}>
                   {teamBPlayers.map((p) => (
                     <Pressable
-                      key={p}
-                      onPress={() => removePlayerB(p)}
+                      key={p._id ?? p.name}
+                      onPress={() => removePlayerB(p._id ?? p.name)}
                       style={styles.playerChip}
                     >
-                      <Text style={styles.playerChipText}>{p}</Text>
+                      <Text style={styles.playerChipText}>{p.name}</Text>
                       <Ionicons
                         name="close"
                         size={14}
@@ -375,6 +444,22 @@ const finish = async () => {
                     </Pressable>
                   ))}
                 </View>
+
+                {showExistingB && (
+                  <View style={{ marginTop: 10 }}>
+                    {allPlayers
+                      .filter((pl) => !teamAPlayers.find((x) => x._id === pl._id) && !teamBPlayers.find((x) => x._id === pl._id))
+                      .map((pl) => (
+                        <Pressable
+                          key={pl._id}
+                          onPress={() => addExistingToTeam(pl, "B")}
+                          style={[styles.playerChip, { marginBottom: 8 }]}
+                        >
+                          <Text style={styles.playerChipText}>{pl.name}</Text>
+                        </Pressable>
+                      ))}
+                  </View>
+                )}
               </View>
             </View>
           )}

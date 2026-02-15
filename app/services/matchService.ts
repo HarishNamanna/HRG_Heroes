@@ -51,3 +51,8 @@ export const getMatchSummary = async (matchId: string) => {
   const res = await api.get(`/matches/${matchId}/summary`);
   return res.data;
 };
+
+export const getPlayers = async () => {
+  const res = await api.get(`/players`);
+  return res.data;
+};
